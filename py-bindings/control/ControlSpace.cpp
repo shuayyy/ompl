@@ -1,4 +1,5 @@
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/function.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -15,7 +16,40 @@ namespace ob = ompl::base;
 
 void ompl::binding::control::init_ControlSpace(nb::module_ &m)
 {
-    nb::class_<oc::ControlSpace>(m, "ControlSpace");
+    nb::class_<oc::ControlSpace>(m, "ControlSpace")
+        .def("getName", &oc::ControlSpace::getName, nb::rv_policy::reference_internal)
+        .def("setName", &oc::ControlSpace::setName, nb::arg("name"))
+        .def("getType", &oc::ControlSpace::getType)
+        .def("getStateSpace", &oc::ControlSpace::getStateSpace, nb::rv_policy::reference_internal)
+        .def("getDimension", &oc::ControlSpace::getDimension)
+        .def("allocControl", &oc::ControlSpace::allocControl)
+        .def("freeControl", &oc::ControlSpace::freeControl, nb::arg("control"))
+        .def("copyControl", &oc::ControlSpace::copyControl, nb::arg("destination"), nb::arg("source"))
+        .def("equalControls", &oc::ControlSpace::equalControls, nb::arg("control1"), nb::arg("control2"))
+        .def("nullControl", &oc::ControlSpace::nullControl, nb::arg("control"))
+        .def("allocDefaultControlSampler", &oc::ControlSpace::allocDefaultControlSampler)
+        .def("allocControlSampler", &oc::ControlSpace::allocControlSampler)
+        .def("setControlSamplerAllocator", &oc::ControlSpace::setControlSamplerAllocator, nb::arg("csa"))
+        .def("clearControlSamplerAllocator", &oc::ControlSpace::clearControlSamplerAllocator)
+        .def("getValueAddressAtIndex", &oc::ControlSpace::getValueAddressAtIndex, nb::arg("control"),
+             nb::arg("index"))
+        .def(
+            "printControl", [](const oc::ControlSpace &cs, const oc::Control *ctrl)
+            { cs.printControl(ctrl, std::cout); }, nb::arg("control"))
+        .def("printSettings", [](const oc::ControlSpace &cs) { cs.printSettings(std::cout); })
+        .def("setup", &oc::ControlSpace::setup)
+        .def("getSerializationLength", &oc::ControlSpace::getSerializationLength)
+        .def("serialize", &oc::ControlSpace::serialize, nb::arg("serialization"), nb::arg("ctrl"))
+        .def("deserialize", &oc::ControlSpace::deserialize, nb::arg("ctrl"), nb::arg("serialization"))
+        .def(
+            "computeSignature",
+            [](const oc::ControlSpace &cs)
+            {
+                std::vector<int> signature;
+                cs.computeSignature(signature);
+                return signature;
+            })
+        .def("isCompound", &oc::ControlSpace::isCompound);
 
     nb::class_<oc::CompoundControlSpace, oc::ControlSpace>(m, "CompoundControlSpace")
         .def(nb::init<ob::StateSpacePtr>(), nb::arg("stateSpace"))

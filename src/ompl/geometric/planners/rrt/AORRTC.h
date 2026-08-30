@@ -114,6 +114,20 @@ namespace ompl
                 return psk_;
             }
 
+            /** \brief Set whether to simplify the solution paths */
+            void setSimplifySolutions(bool simplify)
+            {
+                simplifySolutions_ = simplify;
+            }
+
+            /** \brief Get whether to simplify the solution paths */
+            bool getSimplifySolutions() const
+            {            
+                return simplifySolutions_;
+            }
+
+            /** \brief Whether to simplify the solution paths */
+
             /** \brief Attempt to simplify the current solution path. Stop computation when \e ptc becomes true at the
              * latest. */
             void simplifySolution(const base::PathPtr &p, const base::PlannerTerminationCondition &ptc);
@@ -137,6 +151,8 @@ namespace ompl
 
             /** \brief The instance of the path simplifier */
             PathSimplifierPtr psk_;
+
+            bool simplifySolutions_{true};
 
             base::PathPtr bestPath_{nullptr};
 

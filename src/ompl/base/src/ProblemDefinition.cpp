@@ -426,6 +426,15 @@ void ompl::base::ProblemDefinition::addSolutionPath(const PathPtr &path, bool ap
     PlannerSolution sol(path);
     if (approximate)
         sol.setApproximate(difference);
+    if (optimizationObjective_)
+    {
+        // cost function is not defined for PathControl
+        if (auto *geoPath = path->as<ompl::geometric::PathGeometric>())
+        {
+            auto solCost = geoPath->cost(optimizationObjective_);
+            sol.setOptimized(optimizationObjective_, solCost, optimizationObjective_->isSatisfied(solCost));
+        }
+    }
     sol.setPlannerName(plannerName);
     addSolutionPath(sol);
 }

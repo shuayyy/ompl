@@ -1,5 +1,7 @@
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/trampoline.h>
 #include <sstream>
 
 #include "ompl/base/goals/GoalStates.h"
@@ -10,11 +12,37 @@ namespace ob = ompl::base;
 
 void ompl::binding::base::initGoals_GoalStates(nb::module_ &m)
 {
-    nb::class_<ob::GoalStates, ob::GoalSampleableRegion>(m, "GoalStates")
+    struct PyGoalStates : ob::GoalStates
+    {
+        NB_TRAMPOLINE(ob::GoalStates, 4);
+
+        void sampleGoal(ob::State *st) const override
+        {
+            NB_OVERRIDE(sampleGoal, st);
+        }
+
+        unsigned int maxSampleCount() const override
+        {
+            NB_OVERRIDE(maxSampleCount);
+        }
+
+        bool couldSample() const override
+        {
+            NB_OVERRIDE(couldSample);
+        }
+
+        double distanceGoal(const ob::State *st) const override
+        {
+            NB_OVERRIDE(distanceGoal, st);
+        }
+    };
+
+    nb::class_<ob::GoalStates, ob::GoalSampleableRegion, PyGoalStates /* <-- trampoline */>(m, "GoalStates")
         .def(nb::init<const ob::SpaceInformationPtr &>(), nb::arg("si"),
              "Construct a GoalStates for the given SpaceInformation")
         .def("sampleGoal", &ob::GoalStates::sampleGoal, nb::arg("state"))
         .def("maxSampleCount", &ob::GoalStates::maxSampleCount)
+        .def("couldSample", &ob::GoalStates::couldSample)
         .def("distanceGoal", &ob::GoalStates::distanceGoal, nb::arg("state"))
         .def("print", [](const ob::GoalStates &self) { self.print(std::cout); })
         .def("__repr__",

@@ -1,5 +1,6 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/function.h>
 #include <nanobind/trampoline.h>
 #include <nanobind/stl/string.h>
 
@@ -133,6 +134,36 @@ void ompl::binding::base::init_OptimizationObjective(nb::module_ &m)
     nb::class_<ob::OptimizationObjective, PyOptimizationObjective /* <-- trampoline */>(m, "OptimizationObjective")
         // constructor
         .def(nb::init<const ob::SpaceInformationPtr &>(), nb::arg("si"))
+        .def("isSatisfied", &ob::OptimizationObjective::isSatisfied, nb::arg("cost"))
+        .def("isCostBetterThan", &ob::OptimizationObjective::isCostBetterThan, nb::arg("cost1"), nb::arg("cost2"))
+        .def("isCostEquivalentTo", &ob::OptimizationObjective::isCostEquivalentTo, nb::arg("cost1"), nb::arg("cost2"))
+        .def("isFinite", &ob::OptimizationObjective::isFinite, nb::arg("cost"))
+        .def("betterCost", &ob::OptimizationObjective::betterCost, nb::arg("cost1"), nb::arg("cost2"))
+        .def("stateCost",
+             [](const ob::OptimizationObjective &obj, const ob::State *state)
+             {
+                 return obj.stateCost(state);
+             },
+             nb::arg("state"))
+        .def("motionCost",
+             [](const ob::OptimizationObjective &obj, const ob::State *state1, const ob::State *state2)
+             {
+                 return obj.motionCost(state1, state2);
+             },
+             nb::arg("state1"), nb::arg("state2"))
+        .def("controlCost", &ob::OptimizationObjective::controlCost, nb::arg("control"), nb::arg("steps"))
+        .def("combineCosts", &ob::OptimizationObjective::combineCosts, nb::arg("cost1"), nb::arg("cost2"))
+        .def("subtractCosts", &ob::OptimizationObjective::subtractCosts, nb::arg("cost1"), nb::arg("cost2"))
+        .def("identityCost", &ob::OptimizationObjective::identityCost)
+        .def("infiniteCost", &ob::OptimizationObjective::infiniteCost)
+        .def("initialCost", &ob::OptimizationObjective::initialCost, nb::arg("state"))
+        .def("terminalCost", &ob::OptimizationObjective::terminalCost, nb::arg("state"))
+        .def("isSymmetric", &ob::OptimizationObjective::isSymmetric)
+        .def("averageStateCost", &ob::OptimizationObjective::averageStateCost, nb::arg("numStates"))
+        .def("motionCostHeuristic", &ob::OptimizationObjective::motionCostHeuristic, nb::arg("state1"),
+             nb::arg("state2"))
+        .def("motionCostBestEstimate", &ob::OptimizationObjective::motionCostBestEstimate, nb::arg("state1"),
+             nb::arg("state2"))
         // getters
         .def("getDescription", &ob::OptimizationObjective::getDescription)
         .def("getCostThreshold", &ob::OptimizationObjective::getCostThreshold)
@@ -142,6 +173,13 @@ void ompl::binding::base::init_OptimizationObjective(nb::module_ &m)
         // setters
         .def("setCostThreshold", &ob::OptimizationObjective::setCostThreshold, nb::arg("cost"))
         .def("setCostToGoHeuristic", &ob::OptimizationObjective::setCostToGoHeuristic, nb::arg("costToGoFn"))
+        .def("allocInformedStateSampler", &ob::OptimizationObjective::allocInformedStateSampler, nb::arg("probDefn"),
+             nb::arg("maxNumberCalls"))
+        .def("print",
+             [](const ob::OptimizationObjective &obj)
+             {
+                 obj.print(std::cout);
+             })
         .def("__repr__",
              [](const ob::OptimizationObjective &obj)
              {

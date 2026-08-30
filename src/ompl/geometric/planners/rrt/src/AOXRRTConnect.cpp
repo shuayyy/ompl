@@ -72,7 +72,7 @@ void ompl::geometric::AOXRRTConnect::setup()
         else
         {
             opt_ = std::make_shared<base::PathLengthOptimizationObjective>(si_);
-
+            
             /* Store the new objective in the problem def'n */
             pdef_->setOptimizationObjective(opt_);
         }
@@ -131,9 +131,9 @@ void ompl::geometric::AOXRRTConnect::reset(bool solvedProblem)
     }
     else /* Use standard distance function if no cost bound is set */
     {
-        tStart_->setDistanceFunction([this](const Motion *a, const Motion *b)
+        tStart_->setDistanceFunction([this](const Motion *a, const Motion *b) 
                                      { return euclideanDistanceFunction(a, b); });
-        tGoal_->setDistanceFunction([this](const Motion *a, const Motion *b)
+        tGoal_->setDistanceFunction([this](const Motion *a, const Motion *b) 
                                     { return euclideanDistanceFunction(a, b); });
     }
 
@@ -164,45 +164,51 @@ void ompl::geometric::AOXRRTConnect::setPathCost(double pc)
 }
 
 ompl::geometric::AOXRRTConnect::Motion *ompl::geometric::AOXRRTConnect::findNeighbour(Motion *sampled_motion,
-                                                                                      float rootDist, TreeData &tree)
+                                                                                      float rootDist, TreeData &tree,
+                                                                                      bool startTree)
 {
-    Motion *nearest_motion;
-    std::vector<Motion *> nearest_vec;
+    return tree->nearest(sampled_motion);
 
-    rootDist += rootDistPadding;
+    // std::vector<Motion *> nearest_vec;
 
-    tree->nearestR(sampled_motion, rootDist, nearest_vec);
-    if (nearest_vec.empty())
-    {
-        OMPL_ERROR("%s: Failed to find any neighbours for a state", getName().c_str());
-        return nullptr;
-    }
+    // rootDist += rootDistPadding;
 
-    int idx = 0;
-    nearest_motion = nearest_vec[idx];
-    auto nearest_distance = si_->distance(sampled_motion->state, nearest_motion->state);
+    // tree->nearestR(sampled_motion, rootDist, nearest_vec);
+    // if (nearest_vec.empty())
+    // {
+    //     OMPL_ERROR("%s: Failed to find any neighbours for a state", getName().c_str());
+    //     return nullptr;
+    // }
 
-    while (nearest_motion->cost > 0 && sampled_motion->cost < nearest_motion->cost + nearest_distance)
-    {
-        idx++;
-        nearest_motion = nearest_vec[idx];
-        nearest_distance = si_->distance(sampled_motion->state, nearest_motion->state);
-    }
+    // for (auto *nearest_motion : nearest_vec)
+    // {
+    //     const base::Cost candidateCost =
+    //         opt_->combineCosts(nearest_motion->cost, motionCost(nearest_motion->state, sampled_motion->state, startTree));
 
-    return nearest_motion;
+    //     if (!opt_->isCostBetterThan(sampled_motion->cost, candidateCost))
+    //         return nearest_motion;
+    //     else
+    //     {
+    //         OMPL_INFORM("Best Cost: %.5f, Sample Cost: %.5f, Nearest Cost: %.5f, Candidate Cost: %.5f", bestCost_.value(), sampled_motion->cost.value(), nearest_motion->cost.value(), candidateCost.value());
+    //     }
+    // }
+
+    // OMPL_INFORM("Sample Cost: %.5f", sampled_motion->cost.value());
+    // OMPL_ERROR("%s: Failed to find any valid neighbours for a state", getName().c_str());
+    // return nullptr;
 }
 
 ompl::geometric::AOXRRTConnect::GrowState ompl::geometric::AOXRRTConnect::growTree(TreeData &tree, TreeGrowingInfo &tgi,
                                                                                    Motion *rmotion)
 {
-    auto g_hat = tgi.start ? si_->distance(rmotion->state, startState) : si_->distance(rmotion->state, goalState);
+    auto g_hat = rootCostHeuristic(rmotion->state, tgi.start);
 
     auto *root_motion = new Motion(si_);
     si_->copyState(root_motion->state, tgi.start ? startState : goalState);
-    root_motion->cost = 0;
+    root_motion->cost = opt_->identityCost();
 
     auto rootDist = tree->getDistanceFunction()(rmotion, root_motion);
-    Motion *nmotion = findNeighbour(rmotion, rootDist, tree);
+    Motion *nmotion = findNeighbour(rmotion, rootDist, tree, tgi.start);
 
     /* If there were no neighbours */
     if (nmotion == nullptr)
@@ -246,38 +252,53 @@ ompl::geometric::AOXRRTConnect::GrowState ompl::geometric::AOXRRTConnect::growTr
         return TRAPPED;
     }
 
+    /* Check AO cost bound */
+    auto newCost = opt_->combineCosts(motionCost(nmotion->state, dstate, tgi.start), nmotion->cost);
+
     /* Cost resampling for new vertices */
     /* Don't bother cost resampling if we don't have a meaningful cost range yet */
     if (!rmotion->connecting && bestCost_.value() < std::numeric_limits<double>::infinity())
     {
         si_->copyState(rmotion->state, dstate);
-        g_hat = tgi.start ? si_->distance(dstate, startState) : si_->distance(dstate, goalState);
+        g_hat = rootCostHeuristic(dstate, tgi.start);
 
         int remaining_resample_attempts = maxResampleAttempts_;
+        /* This is weird. The original logic, only keep trying if we make progress*/
         while (validMotion && remaining_resample_attempts > 0)
         {
             remaining_resample_attempts--;
 
-            auto new_cost = si_->distance(nmotion->state, dstate) + nmotion->cost;
-            double c_range = new_cost - g_hat;
-            double cost_sample = rng_.uniformReal(0, 1);
-            double c_rand = (cost_sample * c_range) + g_hat;
-            rmotion->cost = c_rand;
+            newCost = opt_->combineCosts(motionCost(nmotion->state, dstate, tgi.start), nmotion->cost);
+            double c_range = opt_->subtractCosts(newCost, g_hat).value();
+            if (c_range <= 0.0)
+            {
+                validMotion = false;
+                continue;
+            }
+
+            double cost_sample = rng_.uniformReal(0, c_range);
+            rmotion->cost = opt_->combineCosts(base::Cost(cost_sample), g_hat);
 
             auto rootDist = tree->getDistanceFunction()(rmotion, root_motion);
-            Motion *n_nmotion = findNeighbour(rmotion, rootDist, tree);
+            Motion *n_nmotion = findNeighbour(rmotion, rootDist, tree, tgi.start);
+            if (n_nmotion == nullptr)
+            {
+                validMotion = false;
+                continue;
+            }
 
-            if (new_cost <= si_->distance(n_nmotion->state, dstate) + n_nmotion->cost || c_range == 0)
+            const auto altCost = opt_->combineCosts(motionCost(n_nmotion->state, dstate, tgi.start), n_nmotion->cost);
+            if (!opt_->isCostBetterThan(altCost, newCost))
             {
                 validMotion = false;
             }
             else
             {
-                validMotion = si_->checkMotion(n_nmotion->state, dstate);
-
+                validMotion = tgi.start ? si_->checkMotion(n_nmotion->state, dstate) :
+                                          si_->isValid(dstate) && si_->checkMotion(dstate, n_nmotion->state);
                 if (validMotion)
                 {
-                    new_cost = si_->distance(n_nmotion->state, dstate) + n_nmotion->cost;
+                    newCost = altCost;
                     nmotion = n_nmotion;
                     reach = true;
                 }
@@ -285,11 +306,24 @@ ompl::geometric::AOXRRTConnect::GrowState ompl::geometric::AOXRRTConnect::growTr
         }
     }
 
+    /* AO Cost bound check */
+    if (bestCost_.value() < std::numeric_limits<double>::infinity())
+    {
+        const base::Cost costBound = rmotion->connecting ? rmotion->cost : bestCost_;
+
+        if (!opt_->isCostBetterThan(newCost, costBound))
+        {
+            si_->freeState(root_motion->state);
+            delete root_motion;
+            return TRAPPED;
+        }
+    }
+
     auto *motion = new Motion(si_);
     si_->copyState(motion->state, dstate);
     motion->parent = nmotion;
     motion->root = nmotion->root;
-    motion->cost = si_->distance(nmotion->state, motion->state) + nmotion->cost;
+    motion->cost = newCost;
     tree->add(motion);
 
     tgi.xmotion = motion;
@@ -328,7 +362,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
         auto *motion = new Motion(si_);
         si_->copyState(motion->state, st);
         motion->root = motion->state;
-        motion->cost = 0;
+        motion->cost = opt_->identityCost();
         tStart_->add(motion);
         startState = motion->state;
 
@@ -358,7 +392,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
     }
 
     OMPL_INFORM("%s: Started planning with %u states. Seeking a solution better than %.5f.", getName().c_str(),
-                (int)(tStart_->size() + tGoal_->size()), bestCost_);
+                (int)(tStart_->size() + tGoal_->size()), bestCost_.value());
 
     /* Planner may restart early if it fails to find a solution and start the search anew */
     while (!ptc && !internalResetCondition())
@@ -375,7 +409,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
                 auto *motion = new Motion(si_);
                 si_->copyState(motion->state, st);
                 motion->root = motion->state;
-                motion->cost = 0;
+                motion->cost = opt_->identityCost();
 
                 /* Straight line check for start of planning
                    Nested here for PDT visualize, which calls solve for each iteration */
@@ -408,7 +442,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
             tgi.start = !tgi.start;
 
             si_->copyState(cmotion->state, rmotion->state);
-            cmotion->cost = bestCost_.value() - tgi.xmotion->cost;
+            cmotion->cost = opt_->subtractCosts(bestCost_, tgi.xmotion->cost);
             cmotion->connecting = true;
 
             /* if initial progress cannot be done from the otherTree, restore tgi.start */
@@ -427,7 +461,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
 
             Motion *startMotion = tgi.start ? tgi.xmotion : addedMotion;
             Motion *goalMotion = tgi.start ? addedMotion : tgi.xmotion;
-
+            
             /* if we connected the trees in a valid way (start and goal pair is valid)*/
             if (gsc == REACHED && goal->isStartGoalPairValid(startMotion->root, goalMotion->root))
             {
@@ -470,7 +504,7 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
 
                 solved = true;
 
-                OMPL_INFORM("%s: Found a solution of cost %.5f", getName().c_str(), path->length());
+                OMPL_INFORM("%s: Found a solution of cost %.5f", getName().c_str(), path->cost(opt_).value());
                 break;
             }
             else
@@ -504,23 +538,23 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
 
         /* Sample random states until we find a valid and useful sample */
         bool placed_sampled = false;
-        double c_rand;
+        base::Cost c_rand;
         double c_range;
         do
         {
             placed_sampled = sampler_->sampleUniform(rstate, bestCost_);
             sampleAttempts++;
 
-            double cost_sample = rng_.uniformReal(0, 1);
-            auto g_hat =
-                tgi.start ? si_->distance(rmotion->state, startState) : si_->distance(rmotion->state, goalState);
-            auto h_hat =
-                !tgi.start ? si_->distance(rmotion->state, startState) : si_->distance(rmotion->state, goalState);
-            auto f_hat = g_hat + h_hat;
+            const auto g_hat = rootCostHeuristic(rmotion->state, tgi.start);
+            const auto h_hat = rootCostHeuristic(rmotion->state, !tgi.start);
+            const auto f_hat = opt_->combineCosts(g_hat, h_hat);
 
-            c_range = bestCost_.value() - f_hat;
-            c_rand = (cost_sample * c_range) + g_hat;
+            c_range = opt_->subtractCosts(bestCost_, f_hat).value();
+            if (c_range < 0.0)
+                continue;
 
+            double cost_sample = rng_.uniformReal(0, c_range);
+            c_rand = opt_->combineCosts(g_hat, base::Cost(cost_sample));
         } while (!ptc && (!placed_sampled || c_range < 0));
         rmotion->cost = c_rand;
 
@@ -541,18 +575,23 @@ ompl::base::PlannerStatus ompl::geometric::AOXRRTConnect::solve(const base::Plan
 
     if (approxsol && !solved)
     {
-        /* construct the solution path */
-        std::vector<Motion *> mpath;
-        while (approxsol != nullptr)
+        /* Only add approximate solutions if it is the initial search */
+        if (bestCost_.value() == std::numeric_limits<double>::infinity())
         {
-            mpath.push_back(approxsol);
-            approxsol = approxsol->parent;
-        }
+            /* construct the solution path */
+            std::vector<Motion *> mpath;
+            while (approxsol != nullptr)
+            {
+                mpath.push_back(approxsol);
+                approxsol = approxsol->parent;
+            }
 
-        auto path(std::make_shared<PathGeometric>(si_));
-        for (int i = mpath.size() - 1; i >= 0; --i)
-            path->append(mpath[i]->state);
-        pdef_->addSolutionPath(path, true, approxdif, getName());
+            auto path(std::make_shared<PathGeometric>(si_));
+            for (int i = mpath.size() - 1; i >= 0; --i)
+                path->append(mpath[i]->state);
+
+            pdef_->addSolutionPath(path, true, approxdif, getName());
+        }
         return base::PlannerStatus::APPROXIMATE_SOLUTION;
     }
 

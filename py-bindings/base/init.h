@@ -38,11 +38,13 @@ namespace ompl::binding::base
     void initSpacesConstraint_ConstrainedStateSpace(nanobind::module_ &m);
     void initSpacesConstraint_ProjectedStateSpace(nanobind::module_ &m);
     void initSpacesConstraint_TangentBundleStateSpace(nanobind::module_ &m);
+    void initSpaces_CovarianceStateSpace(nanobind::module_ &m);
     void initSpaces_DiscreteStateSpace(nanobind::module_ &m);
     void initSpaces_EmptyStateSpace(nanobind::module_ &m);
     void initSpaces_RealVectorBounds(nanobind::module_ &m);
     void initSpaces_RealVectorStateProjections(nanobind::module_ &m);
     void initSpaces_RealVectorStateSpace(nanobind::module_ &m);
+    void initSpaces_SE2BeliefStateSpace(nanobind::module_ &m);
     void initSpaces_SE2StateSpace(nanobind::module_ &m);
     void initSpaces_SE3StateSpace(nanobind::module_ &m);
     void initSpaces_SO2StateSpace(nanobind::module_ &m);

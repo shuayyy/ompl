@@ -44,6 +44,10 @@ void ompl::binding::geometric::initPlannersRrt_AORRTC(nb::module_ &m)
         .def("clear", &og::AORRTC::clear)
         .def("setup", &og::AORRTC::setup)
 
+        // Simplify solution
+        .def("setSimplifySolutions", &og::AORRTC::setSimplifySolutions, nb::arg("simplify"))
+        .def("getSimplifySolutions", &og::AORRTC::getSimplifySolutions)
+
         // Range
         .def("setRange", &og::AORRTC::setRange, nb::arg("distance"))
         .def("getRange", &og::AORRTC::getRange)

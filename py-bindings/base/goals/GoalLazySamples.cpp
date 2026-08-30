@@ -2,6 +2,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/function.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/trampoline.h>
 
 #include "ompl/base/goals/GoalStates.h"
 #include "ompl/base/goals/GoalLazySamples.h"
@@ -12,7 +13,57 @@ namespace ob = ompl::base;
 
 void ompl::binding::base::initGoals_GoalLazySamples(nb::module_ &m)
 {
-    nb::class_<ob::GoalLazySamples, ob::GoalStates>(m, "GoalLazySamples")
+    struct PyGoalLazySamples : ob::GoalLazySamples
+    {
+        NB_TRAMPOLINE(ob::GoalLazySamples, 9);
+
+        void sampleGoal(ob::State *st) const override
+        {
+            NB_OVERRIDE(sampleGoal, st);
+        }
+
+        double distanceGoal(const ob::State *st) const override
+        {
+            NB_OVERRIDE(distanceGoal, st);
+        }
+
+        void addState(const ob::State *st) override
+        {
+            NB_OVERRIDE(addState, st);
+        }
+
+        bool couldSample() const override
+        {
+            NB_OVERRIDE(couldSample);
+        }
+
+        bool hasStates() const override
+        {
+            NB_OVERRIDE(hasStates);
+        }
+
+        const ob::State *getState(unsigned int index) const override
+        {
+            NB_OVERRIDE(getState, index);
+        }
+
+        std::size_t getStateCount() const override
+        {
+            NB_OVERRIDE(getStateCount);
+        }
+
+        void clear() override
+        {
+            NB_OVERRIDE(clear);
+        }
+
+        unsigned int maxSampleCount() const override
+        {
+            NB_OVERRIDE(maxSampleCount);
+        }
+    };
+
+    nb::class_<ob::GoalLazySamples, ob::GoalStates, PyGoalLazySamples /* <-- trampoline */>(m, "GoalLazySamples")
         .def(nb::init<const ob::SpaceInformationPtr &, ob::GoalSamplingFn, bool, double>())
         .def("sampleGoal", &ob::GoalLazySamples::sampleGoal, nb::arg("state"))
         .def("distanceGoal", &ob::GoalLazySamples::distanceGoal, nb::arg("state"))

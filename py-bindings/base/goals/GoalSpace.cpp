@@ -1,5 +1,6 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/trampoline.h>
 
 #include <sstream>
 #include "ompl/base/goals/GoalSpace.h"
@@ -10,7 +11,27 @@ namespace ob = ompl::base;
 
 void ompl::binding::base::initGoals_GoalSpace(nb::module_ &m)
 {
-    nb::class_<ob::GoalSpace, ob::GoalSampleableRegion>(m, "GoalSpace")
+    struct PyGoalSpace : ob::GoalSpace
+    {
+        NB_TRAMPOLINE(ob::GoalSpace, 3);
+
+        void sampleGoal(ob::State *st) const override
+        {
+            NB_OVERRIDE(sampleGoal, st);
+        }
+
+        unsigned int maxSampleCount() const override
+        {
+            NB_OVERRIDE(maxSampleCount);
+        }
+
+        double distanceGoal(const ob::State *st) const override
+        {
+            NB_OVERRIDE(distanceGoal, st);
+        }
+    };
+
+    nb::class_<ob::GoalSpace, ob::GoalSampleableRegion, PyGoalSpace /* <-- trampoline */>(m, "GoalSpace")
         .def(nb::init<const ob::SpaceInformationPtr &>(), nb::arg("si"))
         .def("sampleGoal", &ob::GoalSpace::sampleGoal, nb::arg("state"))
         .def("maxSampleCount", &ob::GoalSpace::maxSampleCount)

@@ -72,6 +72,9 @@ void ompl::geometric::AORRTC::setup()
     aox_planner->setRange(getRange());
 
     aox_planner->setup();
+    setRange(aox_planner->getRange());
+
+    opt_ = pdef_->getOptimizationObjective();
 
     psk_ = std::make_shared<PathSimplifier>(si_);
     initCost_ = std::numeric_limits<double>::infinity();
@@ -133,28 +136,34 @@ ompl::base::PlannerStatus ompl::geometric::AORRTC::solve(const base::PlannerTerm
             {
                 /* If we found a solution, extract it and update our path */
                 const base::PathPtr path = aox_planner->getFoundPath();
+                const base::Cost pathCost = path->cost(opt_);
 
                 /* Update our best path if our new path is better */
-                if (path->length() < bestCost_.value())
+                if (opt_->isCostBetterThan(pathCost, bestCost_))
                 {
                     bestPath_ = path;
-                    bestCost_ = ompl::base::Cost(path->length());
+                    bestCost_ = pathCost;
 
                     pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
                 }
 
-                /* Simplify our solution */
-                simplifySolution(path, ptc);
-
-                /* Again, update our best path if our new (simplified) path is better */
-                if (path->length() < bestCost_.value())
+                if (simplifySolutions_)
                 {
-                    OMPL_INFORM("%s: AOX search simplified to cost %.5f", getName().c_str(), path->length());
+                    /* Simplify our solution */
+                    auto simplifiedPath = std::make_shared<ompl::geometric::PathGeometric>(
+                        static_cast<const ompl::geometric::PathGeometric &>(*path));
+                    simplifySolution(simplifiedPath, ptc);
+                    const auto simplifiedCost = simplifiedPath->cost(opt_);
 
-                    bestPath_ = path;
-                    bestCost_ = ompl::base::Cost(path->length());
+                    /* Again, update our best path if our new (simplified) path is better */
+                    if (opt_->isCostBetterThan(simplifiedCost, bestCost_))
+                    {
+                        OMPL_INFORM("%s: AOX search simplified to cost %.5f", getName().c_str(), simplifiedCost.value());
 
-                    pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
+                        bestPath_ = simplifiedPath;
+                        bestCost_ = simplifiedCost;
+                        pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
+                    }
                 }
             }
         }
@@ -167,18 +176,29 @@ ompl::base::PlannerStatus ompl::geometric::AORRTC::solve(const base::PlannerTerm
             /* If we found a solution, extract it and update our path */
             if (solve_status == base::PlannerStatus::EXACT_SOLUTION)
             {
-                initCost_ = pdef_->getSolutionPath()->length();
                 bestPath_ = pdef_->getSolutionPath();
+                bestCost_ = bestPath_->cost(opt_);
+                initCost_ = bestCost_.value();
 
-                bestCost_ = ompl::base::Cost(bestPath_->length());
                 pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
 
-                simplifySolution(bestPath_, ptc);
-                OMPL_INFORM("%s: Initial search simplified to cost %.5f", getName().c_str(),
-                            pdef_->getSolutionPath()->length());
+                /* Simplify our solution */
+                if (simplifySolutions_)
+                {
+                    auto simplifiedPath = std::make_shared<ompl::geometric::PathGeometric>(
+                        static_cast<const ompl::geometric::PathGeometric &>(*bestPath_));
+                    simplifySolution(simplifiedPath, ptc);
+                    const auto simplifiedCost = simplifiedPath->cost(opt_);
 
-                bestCost_ = ompl::base::Cost(bestPath_->length());
-                pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
+                    if (opt_->isCostBetterThan(simplifiedCost, bestCost_))
+                    {
+                        OMPL_INFORM("%s: Initial search simplified to cost %.5f", getName().c_str(), simplifiedCost.value());
+
+                        bestPath_ = simplifiedPath;
+                        bestCost_ = simplifiedCost;
+                        pdef_->addSolutionPath(bestPath_, false, 0.0, getName());
+                    }
+                }
             }
         }
 
@@ -204,11 +224,11 @@ ompl::base::PlannerStatus ompl::geometric::AORRTC::solve(const base::PlannerTerm
             reset(false);
         }
 
-        /* Something has surely gone wrong if you have found a zero-length path */
+        /* If you have found a zero-length path */
         if (bestCost_.value() == 0)
         {
-            OMPL_ERROR("%s: Zero-length path found. May have a common start/goal.", getName().c_str());
-            return base::PlannerStatus::INVALID_GOAL;
+            OMPL_WARN("%s: Zero-length path found. May have a common start/goal.", getName().c_str());
+            return base::PlannerStatus::EXACT_SOLUTION;
         }
     } while (!ptc);
 

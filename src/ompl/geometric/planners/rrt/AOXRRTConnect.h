@@ -46,9 +46,9 @@
 
 namespace ompl
 {
-    namespace geometric
-    {
-        /**
+namespace geometric
+{
+            /**
            @anchor gAORRTC RRT-Connect
            @par Short description
            AORRTC leverages RRT-Connect to repeatedly search
@@ -75,204 +75,219 @@ namespace ompl
            13375-13382, Dec. 2025. DOI: [10.1109/LRA.2025.3615522](http://dx.doi.org/10.1109/LRA.2025.3615522)<br>
            [[PDF]](https://arxiv.org/abs/2505.10542)
         */
+    
+    /** \brief Modified RRT-Connect for AORRTC (AOXRRTConnect) */
+    class AOXRRTConnect : public base::Planner
+    {
+    public:
+        /** \brief Constructor */
+        AOXRRTConnect(const base::SpaceInformationPtr &si);
 
-        /** \brief Modified RRT-Connect for AORRTC (AOXRRTConnect) */
-        class AOXRRTConnect : public base::Planner
+        ~AOXRRTConnect() override;
+
+        base::PlannerStatus solve(const base::PlannerTerminationCondition &ptc) override;
+
+        void setFoundPath(const base::PathPtr &p)
         {
-        public:
-            /** \brief Constructor */
-            AOXRRTConnect(const base::SpaceInformationPtr &si);
+            foundPath = p;
+        }
 
-            ~AOXRRTConnect() override;
+        base::PathPtr getFoundPath() const
+        {
+            return foundPath;
+        }
 
-            base::PlannerStatus solve(const base::PlannerTerminationCondition &ptc) override;
-
-            void setFoundPath(const base::PathPtr &p)
-            {
-                foundPath = p;
-            }
-
-            base::PathPtr getFoundPath() const
-            {
-                return foundPath;
-            }
-
-            /** \brief Set the range the planner is supposed to use.
+           /** \brief Set the range the planner is supposed to use.
 
                 This parameter greatly influences the runtime of the
                 algorithm. It represents the maximum length of a
                 motion to be added in the tree of motions. */
-            void setRange(double distance)
+        void setRange(double distance)
+        {
+            maxDistance_ = distance;
+        }
+
+        /** \brief Get the range the planner is using */
+        double getRange() const
+        {
+            return maxDistance_;
+        }
+
+        /** \brief Set a different nearest neighbors datastructure */
+        template <template <typename T> class NN>
+        void setNearestNeighbors()
+        {
+            if ((tStart_ && tStart_->size() != 0) || (tGoal_ && tGoal_->size() != 0))
+                OMPL_WARN("Calling setNearestNeighbors will clear all states.");
+            clear();
+            tStart_ = std::make_shared<NN<Motion *>>();
+            tGoal_ = std::make_shared<NN<Motion *>>();
+            setup();
+        }
+
+        /** \brief Check if the inner loop planner met its  condition to terminate */
+        bool internalResetCondition()
+        {
+            bool shouldReset = false;
+            if (tStart_ && tGoal_)
             {
-                maxDistance_ = distance;
+                /* Reset if we have met our maximum internal vertices */
+                shouldReset = shouldReset || (tStart_->size() + tGoal_->size() >= maxInternalVertices);
+            }
+            else
+            {
+                /* If our trees don't exist, we're not in the middle of a search anyways */
+                shouldReset = true;
+            }
+            /* Reset if we have attempted our maximum internal samples */
+            shouldReset = shouldReset || (sampleAttempts >= maxInternalSamples);
+            return shouldReset;
+        }
+
+        void setup() override;
+
+        void reset(bool solvedProblem);
+
+        void setPathCost(double pc);
+
+    protected:
+        /** \brief Representation of a motion */
+        class Motion
+        {
+        public:
+            Motion() = default;
+
+            Motion(const base::SpaceInformationPtr &si) : state(si->allocState())
+            {
             }
 
-            /** \brief Get the range the planner is using */
-            double getRange() const
-            {
-                return maxDistance_;
-            }
+            ~Motion() = default;
 
-            /** \brief Set a different nearest neighbors datastructure */
-            template <template <typename T> class NN>
-            void setNearestNeighbors()
-            {
-                if ((tStart_ && tStart_->size() != 0) || (tGoal_ && tGoal_->size() != 0))
-                    OMPL_WARN("Calling setNearestNeighbors will clear all states.");
-                clear();
-                tStart_ = std::make_shared<NN<Motion *>>();
-                tGoal_ = std::make_shared<NN<Motion *>>();
-                setup();
-            }
+            const base::State *root{nullptr};
+            base::State *state{nullptr};
+            Motion *parent{nullptr};
 
-            /** \brief Check if the inner loop planner met its  condition to terminate */
-            bool internalResetCondition()
-            {
-                bool shouldReset = false;
-                if (tStart_ && tGoal_)
-                {
-                    /* Reset if we have met our maximum internal vertices */
-                    shouldReset = shouldReset || (tStart_->size() + tGoal_->size() >= maxInternalVertices);
-                }
-                else
-                {
-                    /* If our trees don't exist, we're not in the middle of a search anyways */
-                    shouldReset = true;
-                }
-                /* Reset if we have attempted our maximum internal samples */
-                shouldReset = shouldReset || (sampleAttempts >= maxInternalSamples);
-                return shouldReset;
-            }
 
-            void setup() override;
+            /** \brief The cost up to this motion */
+            base::Cost cost;
+            bool connecting{false};
+        };
 
-            void reset(bool solvedProblem);
+        /** \brief A nearest-neighbor datastructure representing a tree of motions */
+        using TreeData = std::shared_ptr<NearestNeighbors<Motion *>>;
 
-            void setPathCost(double pc);
+        /** \brief Information attached to growing a tree of motions (used internally) */
+        struct TreeGrowingInfo
+        {
+            base::State *xstate;
+            Motion *xmotion;
+            bool start;
+        };
 
-        protected:
-            /** \brief Representation of a motion */
-            class Motion
-            {
-            public:
-                Motion() = default;
+        /** \brief The state of the tree after an attempt to extend it */
+        enum GrowState
+        {
+            /* no progress has been made */
+            TRAPPED,
+            /* progress has been made towards the randomly sampled state */
+            ADVANCED,
+            /* the randomly sampled state was reached */
+            REACHED
+        };
 
-                Motion(const base::SpaceInformationPtr &si) : state(si->allocState())
-                {
-                }
+        /** \brief Free the memory allocated by this planner */
+        void freeMemory();
 
-                ~Motion() = default;
+        /** \brief Compute euclidean distance between motions */
+        double euclideanDistanceFunction(const Motion *a, const Motion *b) const
+        {
+            return si_->distance(a->state, b->state);
+        }
 
-                const base::State *root{nullptr};
-                base::State *state{nullptr};
-                Motion *parent{nullptr};
-                double cost{0};
-                bool connecting{false};
-            };
+        /** \brief Compute AOX distance between motions */
+        double aoxDistanceFunction(const Motion *a, const Motion *b) const
+        {
+            auto space_diff = si_->distance(a->state, b->state);
+            auto cost_diff = opt_->subtractCosts(a->cost, b->cost).value();
 
-            /** \brief A nearest-neighbor datastructure representing a tree of motions */
-            using TreeData = std::shared_ptr<NearestNeighbors<Motion *>>;
+            auto dist = sqrt(pow(space_diff, 2) + pow(cost_diff, 2));
 
-            /** \brief Information attached to growing a tree of motions (used internally) */
-            struct TreeGrowingInfo
-            {
-                base::State *xstate;
-                Motion *xmotion;
-                bool start;
-            };
+            return dist;
+        }
 
-            /** \brief The state of the tree after an attempt to extend it */
-            enum GrowState
-            {
-                /* no progress has been made */
-                TRAPPED,
-                /* progress has been made towards the randomly sampled state */
-                ADVANCED,
-                /* the randomly sampled state was reached */
-                REACHED
-            };
+        /** \brief Helper function to compute directional motion cost */
+        base::Cost motionCost(const base::State *fromNearest, const base::State *toNew, bool startTree) const
+        {
+            return startTree ? opt_->motionCost(fromNearest, toNew) : opt_->motionCost(toNew, fromNearest);
+        }
 
-            /** \brief Free the memory allocated by this planner */
-            void freeMemory();
+        /** \brief Root-to-state heuristic in the same cost direction as Motion::cost. */
+        base::Cost rootCostHeuristic(const base::State *state, bool startTree) const
+        {
+            return startTree ? opt_->motionCostHeuristic(startState, state) : opt_->motionCostHeuristic(state, goalState);
+        }
 
-            /** \brief Compute euclidian distance between motions */
-            double euclideanDistanceFunction(const Motion *a, const Motion *b) const
-            {
-                return si_->distance(a->state, b->state);
-            }
+        /** \brief Find a valid neighbour with asymmetric objective-cost bounds via iteration */
+        Motion *findNeighbour(Motion *sampled_motion, float rootDist, TreeData &tree, bool startTree);
 
-            /** \brief Compute AOX distance between motions */
-            double aoxDistanceFunction(const Motion *a, const Motion *b) const
-            {
-                auto space_diff = si_->distance(a->state, b->state);
-                auto cost_diff = a->cost - b->cost;
+        /** \brief Grow a tree towards a random state */
+        GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion);
 
-                auto dist = sqrt(pow(space_diff, 2) + pow(cost_diff, 2));
+        /** \brief State sampler */
+        base::InformedSamplerPtr sampler_;
 
-                return dist;
-            }
+        std::size_t sampleAttempts{0};
 
-            /** \brief Find a valid neighbour with asymmetric distance funtion via iteration */
-            Motion *findNeighbour(Motion *sampled_motion, float rootDist, TreeData &tree);
+        /* Pad rootDist to account for floating point error
+            Needed to make sure the root is included in nearest list
+            TODO: Should use some relative epsilon for padding
+            (FLT_EPSILON is good but does not scale with the magnitude of rootDist and may be too small) */
+        const float rootDistPadding = 0.00001;
 
-            /** \brief Grow a tree towards a random state */
-            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion);
+        /** \brief The start tree */
+        TreeData tStart_;
 
-            /** \brief State sampler */
-            base::InformedSamplerPtr sampler_;
+        /** \brief The goal tree */
+        TreeData tGoal_;
 
-            std::size_t sampleAttempts{0};
+        /** \brief A flag that toggles between expanding the start tree (true) or goal tree (false). */
+        bool startTree_{true};
 
-            /* Pad rootDist to account for floating point error
-               Needed to make sure the root is included in nearest list
-               TODO: Should use some relative epsilon for padding
-               (FLT_EPSILON is good but does not scale with the magnitude of rootDist and may be too small) */
-            const float rootDistPadding = 0.00001;
+        /** \brief The maximum length of a motion to be added to a tree */
+        double maxDistance_{0.};
 
-            /** \brief The start tree */
-            TreeData tStart_;
+        /** \brief Maximum allowed cost resampling iterations before moving on */
+        long int maxResampleAttempts_{100};
 
-            /** \brief The goal tree */
-            TreeData tGoal_;
+        /** \brief Maximum allowed total vertices in trees before the search is restarted */
+        std::size_t maxInternalVertices{10000};
 
-            /** \brief A flag that toggles between expanding the start tree (true) or goal tree (false). */
-            bool startTree_{true};
+        /** \brief Increment by which maxVertices is increased */
+        std::size_t maxInternalVerticesIncrement{10000};
 
-            /** \brief The maximum length of a motion to be added to a tree */
-            double maxDistance_{0.};
+        /** \brief Maximum samples tried before the search is restarted */
+        std::size_t maxInternalSamples{10000000};
 
-            /** \brief Maximum allowed cost resampling iterations before moving on */
-            long int maxResampleAttempts_{100};
+        /** \brief Increment by which maxSamples is increased */
+        std::size_t maxInternalSamplesIncrement{10000000};
 
-            /** \brief Maximum allowed total vertices in trees before the search is restarted */
-            std::size_t maxInternalVertices{10000};
+        base::State *startState{nullptr};
+        base::State *goalState{nullptr};
 
-            /** \brief Increment by which maxVertices is increased */
-            std::size_t maxInternalVerticesIncrement{10000};
+        /** \brief Best cost found so far by algorithm */
+        base::Cost bestCost_{std::numeric_limits<double>::infinity()};
 
-            /** \brief Maximum samples tried before the search is restarted */
-            std::size_t maxInternalSamples{10000000};
+        /** \brief Path found by the algorithm */
+        base::PathPtr foundPath{nullptr};
 
-            /** \brief Increment by which maxSamples is increased */
-            std::size_t maxInternalSamplesIncrement{10000000};
+        /** \brief Outer loop termination condition for AORRTC */
+        base::PlannerTerminationCondition _ptc{nullptr};
 
-            base::State *startState{nullptr};
-            base::State *goalState{nullptr};
+        /** \brief Objective we're optimizing */
+        base::OptimizationObjectivePtr opt_;
 
-            /** \brief Best cost found so far by algorithm */
-            base::Cost bestCost_{std::numeric_limits<double>::infinity()};
-
-            /** \brief Path found by the algorithm */
-            base::PathPtr foundPath{nullptr};
-
-            /** \brief Outer loop termination condition for AORRTC */
-            base::PlannerTerminationCondition _ptc{nullptr};
-
-            /** \brief Objective we're optimizing */
-            base::OptimizationObjectivePtr opt_;
-
-            /** \brief The random number generator */
-            RNG rng_;
+        /** \brief The random number generator */
+        RNG rng_;
 
             /** \brief The pair of states in each tree connected during planning.  Used for PlannerData computation */
             std::pair<base::State *, base::State *> connectionPoint_;
